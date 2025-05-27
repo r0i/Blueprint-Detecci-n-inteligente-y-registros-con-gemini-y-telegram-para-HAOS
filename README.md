@@ -54,3 +54,21 @@ input_text:
     name: Registro de eventos cámaras
     initial: ""
     max: 1000
+
+## Uso
+
+Detecta movimiento en las cámaras solo cuando la alarma está armada en modo away.
+
+Envía alertas a Telegram con foto, análisis Gemini y botones para gestionar la alerta.
+
+Registra un resumen del evento en el historial dentro de Home Assistant.
+
+Controla la frecuencia de notificaciones con delay_notification.
+
+Puede enviar notificaciones TTS si se activa la opción.
+
+## Contribuciones
+Contribuciones, mejoras o reportes de errores son bienvenidos vía Issues o Pull Requests en este repositorio.
+
+## Licencia
+MIT License — libre para usar y modificar.
