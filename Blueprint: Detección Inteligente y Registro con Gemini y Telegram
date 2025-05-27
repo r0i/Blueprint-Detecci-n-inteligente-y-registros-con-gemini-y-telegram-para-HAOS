@@ -1,0 +1,139 @@
+blueprint:
+  name: Detección Inteligente y Registro con Gemini y Telegram
+  description: >
+    Automatización para detectar movimiento en múltiples cámaras, analizar imágenes
+    con Gemini Pro Vision (llmvision), enviar notificaciones con botones por Telegram
+    y registrar eventos en un input_text para historial.
+  domain: automation
+  input:
+    cameras:
+      name: Cámaras
+      description: Lista de cámaras a monitorizar.
+      selector:
+        entity:
+          domain: camera
+          multiple: true
+    motion_sensors:
+      name: Sensores de movimiento
+      description: Lista de sensores binarios de movimiento correspondientes a las cámaras (ordenada).
+      selector:
+        entity:
+          domain: binary_sensor
+          multiple: true
+    input_text_entity:
+      name: Entidad input_text para registro de eventos
+      description: Entidad input_text donde se guardará el historial de eventos.
+      selector:
+        entity:
+          domain: input_text
+    telegram_chat_id:
+      name: Telegram Chat ID
+      description: ID del chat o usuario para recibir las notificaciones.
+      selector:
+        text:
+    alarm_panel_entity:
+      name: Panel de alarma
+      description: Entidad del panel de alarma para condicionar la activación a modo armed_away.
+      selector:
+        entity:
+          domain: alarm_control_panel
+    delay_notification:
+      name: Tiempo mínimo entre notificaciones (segundos)
+      description: Evita notificaciones repetidas durante este tiempo.
+      default: 60
+      selector:
+        number:
+          min: 10
+          max: 3600
+          unit_of_measurement: segundos
+          mode: slider
+    tts_notification:
+      name: Notificación TTS
+      description: Enviar notificación por texto a voz vía Telegram.
+      default: false
+      selector:
+        boolean: {}
+
+variables:
+  cameras: !input cameras
+  motion_sensors: !input motion_sensors
+  input_text_entity: !input input_text_entity
+  telegram_chat_id: !input telegram_chat_id
+  alarm_panel_entity: !input alarm_panel_entity
+  delay_notification: !input delay_notification
+  tts_notification: !input tts_notification
+
+trigger:
+  - platform: state
+    entity_id: !input motion_sensors
+    to: "on"
+
+condition:
+  - condition: state
+    entity_id: !input alarm_panel_entity
+    state: "armed_away"
+
+action:
+  - variables:
+      index: "{{ motion_sensors.index(trigger.entity_id) }}"
+      camera_entity: "{{ cameras[index] }}"
+      now_ts: "{{ as_timestamp(now()) }}"
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ not state_attr('automation.' ~ trigger.entity_id.split('.')[1] ~ '_last_notification', 'last_triggered') or
+                 (now_ts - as_timestamp(state_attr('automation.' ~ trigger.entity_id.split('.')[1] ~ '_last_notification', 'last_triggered'))) > delay_notification }}
+        sequence:
+          - service: camera.snapshot
+            data:
+              entity_id: "{{ camera_entity }}"
+              filename: "/tmp/{{ camera_entity.split('.')[1] }}_last_motion.jpg"
+          - service: llmvision.image_analyzer
+            data:
+              image_entity:
+                - "{{ camera_entity }}"
+              provider: 01JVPRSZA6MAKF22FSW162KY99
+              model: gemini_pro_vision
+              message: >
+                Indica si hay alguna persona, vehículo o animal en esta imagen.
+                Responde solo 'si' o 'no'.
+              include_filename: true
+              target_width: 640
+            response_variable: object_detection
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ object_detection.response_text is not defined }}"
+                sequence:
+                  - stop: "No se pudo analizar la detección de objetos."
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ object_detection.response_text|lower != 'si' }}"
+                sequence:
+                  - stop: "No se detectaron personas, vehículos o animales."
+          - service: notify.telegram
+            data:
+              target: "{{ telegram_chat_id }}"
+              message: >
+                Alerta de {{ camera_entity.split('.')[1].replace('_', ' ')|capitalize }}: Se detectó actividad.
+                Gemini dice: {{ object_detection.response_text | default('sin análisis') }}.
+              data:
+                photo:
+                  - file: "/tmp/{{ camera_entity.split('.')[1] }}_last_motion.jpg"
+                    caption: "Imagen de alerta"
+                inline_keyboard:
+                  - - text: "Ignorar"
+                      callback_data: "ignore_{{ now_ts }}"
+                    - text: "Marcar como importante"
+                      callback_data: "important_{{ now_ts }}"
+          - service: input_text.set_value
+            data:
+              entity_id: "{{ input_text_entity }}"
+              value: >
+                {{ (states(input_text_entity)[:990] if states(input_text_entity) else '') }}
+                \n[{{ now().strftime('%Y-%m-%d %H:%M:%S') }}] Alerta en {{ camera_entity.split('.')[1].replace('_', ' ')|capitalize }} - Resultado Gemini: {{ object_detection.response_text }}
+          - delay:
+              seconds: "{{ delay_notification }}"
+mode: single
