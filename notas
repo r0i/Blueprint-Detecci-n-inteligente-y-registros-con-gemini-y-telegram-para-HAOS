@@ -1,0 +1,9 @@
+Notas:
+
+Cambia notify.telegram al nombre correcto del servicio de notificación de Telegram que uses.
+
+Ajusta el provider/modelo si usas otro servicio Gemini.
+
+El registro limita a 1000 caracteres para no saturar el input_text.
+
+El botón “Ignorar” y “Marcar como importante” están configurados para usarse con callbacks, pero necesitarás manejar los eventos en tu Telegram bot para que funcionen (eso se puede añadir aparte).
