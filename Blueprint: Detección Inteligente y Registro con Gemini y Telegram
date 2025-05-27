@@ -75,7 +75,12 @@ condition:
 
 action:
   - variables:
-      index: "{{ motion_sensors.index(trigger.entity_id) }}"
+      index: >-
+        {% if trigger.entity_id in motion_sensors %}
+          {{ motion_sensors.index(trigger.entity_id) }}
+        {% else %}
+          0
+        {% endif %}
       camera_entity: "{{ cameras[index] }}"
       now_ts: "{{ as_timestamp(now()) }}"
   - choose:
